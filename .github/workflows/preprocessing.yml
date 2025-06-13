@@ -1,0 +1,334 @@
+name: Fruit & Vegetable Dataset Preprocessing
+
+on:
+  # Trigger on push to main branch
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'preprocessing/**'
+      - '.github/workflows/preprocessing.yml'
+      - 'requirements.txt'
+  
+  # Trigger on pull request
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'preprocessing/**'
+      - '.github/workflows/preprocessing.yml'
+      - 'requirements.txt'
+  
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      apply_augmentation:
+        description: 'Apply data augmentation to training data'
+        required: false
+        default: 'true'
+        type: boolean
+      target_size:
+        description: 'Target image size (format: 224x224)'
+        required: false
+        default: '224x224'
+        type: string
+
+env:
+  PYTHON_VERSION: 3.9
+  KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+  KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+
+jobs:
+  preprocessing:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: [3.9]
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Verify Kaggle credentials
+      run: |
+        if [ -z "$KAGGLE_USERNAME" ] || [ -z "$KAGGLE_KEY" ]; then
+          echo "❌ Kaggle credentials not found!"
+          echo "Please set KAGGLE_USERNAME and KAGGLE_KEY secrets in repository settings"
+          exit 1
+        fi
+        echo "✅ Kaggle credentials found"
+    
+    - name: Create Kaggle config directory
+      run: |
+        mkdir -p ~/.kaggle
+        echo "{\"username\":\"$KAGGLE_USERNAME\",\"key\":\"$KAGGLE_KEY\"}" > ~/.kaggle/kaggle.json
+        chmod 600 ~/.kaggle/kaggle.json
+    
+    - name: Parse workflow inputs
+      id: parse_inputs
+      run: |
+        # Parse augmentation flag
+        if [ "${{ github.event.inputs.apply_augmentation }}" = "false" ]; then
+          echo "augmentation=false" >> $GITHUB_OUTPUT
+        else
+          echo "augmentation=true" >> $GITHUB_OUTPUT
+        fi
+        
+        # Parse target size
+        TARGET_SIZE="${{ github.event.inputs.target_size }}"
+        if [ -z "$TARGET_SIZE" ]; then
+          TARGET_SIZE="224x224"
+        fi
+        echo "target_size=$TARGET_SIZE" >> $GITHUB_OUTPUT
+        echo "Augmentation: ${{ github.event.inputs.apply_augmentation }}"
+        echo "Target Size: $TARGET_SIZE"
+    
+    - name: Create output directories
+      run: |
+        mkdir -p namadataset_raw
+        mkdir -p preprocessing/namadataset_preprocessing
+    
+    - name: Run preprocessing pipeline
+      id: preprocessing
+      run: |
+        cd preprocessing
+        echo "🚀 Starting preprocessing pipeline..."
+        echo "📊 Configuration:"
+        echo "  - Augmentation: ${{ steps.parse_inputs.outputs.augmentation }}"
+        echo "  - Target Size: ${{ steps.parse_inputs.outputs.target_size }}"
+        
+        # Parse target size
+        IFS='x' read -ra SIZE_ARRAY <<< "${{ steps.parse_inputs.outputs.target_size }}"
+        HEIGHT=${SIZE_ARRAY[0]}
+        WIDTH=${SIZE_ARRAY[1]}
+        
+        # Run preprocessing with custom parameters
+        python -c "
+import sys
+sys.path.append('.')
+from automate_preprocessing import FruitVegetablePreprocessor
+
+# Initialize with custom target size
+preprocessor = FruitVegetablePreprocessor(target_size=($HEIGHT, $WIDTH))
+
+# Run pipeline
+save_path = './namadataset_preprocessing'
+apply_aug = ${{ steps.parse_inputs.outputs.augmentation }}
+
+try:
+    processed_data, metadata = preprocessor.run_full_pipeline(save_path, apply_aug)
+    print('✅ Preprocessing completed successfully!')
+    
+    # Print summary
+    print(f'📊 Summary:')
+    print(f'  - Categories: {metadata[\"num_classes\"]}')
+    print(f'  - Image shape: {metadata[\"image_shape\"]}')
+    print(f'  - Total samples: {metadata[\"dataset_info\"][\"total_samples\"]}')
+    print(f'  - Augmentation applied: {metadata[\"augmentation_applied\"]}')
+    
+    # Save summary for artifact
+    with open('preprocessing_summary.txt', 'w') as f:
+        f.write(f'Preprocessing Summary\\n')
+        f.write(f'==================\\n')
+        f.write(f'Categories: {metadata[\"num_classes\"]}\\n')
+        f.write(f'Image shape: {metadata[\"image_shape\"]}\\n')
+        f.write(f'Total samples: {metadata[\"dataset_info\"][\"total_samples\"]}\\n')
+        f.write(f'Augmentation applied: {metadata[\"augmentation_applied\"]}\\n')
+        f.write(f'Target size: {metadata[\"target_size\"]}\\n')
+        f.write(f'Splits: {metadata[\"dataset_info\"][\"splits\"]}\\n')
+        
+        # Add dataset splits info
+        for split in metadata[\"dataset_info\"][\"splits\"]:
+            if split in processed_data:
+                samples = processed_data[split][\"images\"].shape[0]
+                f.write(f'{split} samples: {samples}\\n')
+    
+    exit(0)
+except Exception as e:
+    print(f'❌ Preprocessing failed: {e}')
+    exit(1)
+        "
+    
+    - name: Verify preprocessing output
+      run: |
+        cd preprocessing
+        echo "🔍 Verifying preprocessing output..."
+        
+        # Check if directories exist
+        if [ ! -d "namadataset_preprocessing" ]; then
+          echo "❌ Preprocessing output directory not found!"
+          exit 1
+        fi
+        
+        # Check metadata files
+        if [ ! -f "namadataset_preprocessing/metadata.json" ]; then
+          echo "❌ Metadata file not found!"
+          exit 1
+        fi
+        
+        if [ ! -f "namadataset_preprocessing/label_encoder.pkl" ]; then
+          echo "❌ Label encoder file not found!"
+          exit 1
+        fi
+        
+        # Check data splits
+        for split in train test validation; do
+          if [ -d "namadataset_preprocessing/$split" ]; then
+            if [ -f "namadataset_preprocessing/$split/images.npy" ] && [ -f "namadataset_preprocessing/$split/labels.npy" ]; then
+              echo "✅ $split split data found"
+            else
+              echo "⚠️  $split split data incomplete"
+            fi
+          else
+            echo "⚠️  $split split not found"
+          fi
+        done
+        
+        # Get file sizes
+        echo "📁 File sizes:"
+        du -h namadataset_preprocessing/* | head -20
+    
+    - name: Create preprocessing report
+      run: |
+        cd preprocessing
+        echo "📋 Creating preprocessing report..."
+        
+        cat > preprocessing_report.md << 'EOF'
+        # Fruit & Vegetable Dataset Preprocessing Report
+        
+        ## 🚀 Preprocessing Completed Successfully!
+        
+        **Workflow Run:** `${{ github.run_number }}`  
+        **Triggered by:** `${{ github.event_name }}`  
+        **Branch:** `${{ github.ref_name }}`  
+        **Commit:** `${{ github.sha }}`  
+        **Date:** `$(date -u +"%Y-%m-%d %H:%M:%S UTC")`
+        
+        ## ⚙️ Configuration
+        - **Augmentation Applied:** `${{ steps.parse_inputs.outputs.augmentation }}`
+        - **Target Image Size:** `${{ steps.parse_inputs.outputs.target_size }}`
+        - **Python Version:** `${{ matrix.python-version }}`
+        
+        ## 📊 Processing Summary
+        EOF
+        
+        # Add summary from preprocessing
+        if [ -f "preprocessing_summary.txt" ]; then
+          echo "" >> preprocessing_report.md
+          echo '```' >> preprocessing_report.md
+          cat preprocessing_summary.txt >> preprocessing_report.md
+          echo '```' >> preprocessing_report.md
+        fi
+        
+        # Add file structure
+        echo "" >> preprocessing_report.md
+        echo "## 📁 Output Structure" >> preprocessing_report.md
+        echo '```' >> preprocessing_report.md
+        echo "namadataset_preprocessing/" >> preprocessing_report.md
+        if [ -d "namadataset_preprocessing" ]; then
+          find namadataset_preprocessing -type f | head -20 | sort >> preprocessing_report.md
+        fi
+        echo '```' >> preprocessing_report.md
+        
+        # Add next steps
+        cat >> preprocessing_report.md << 'EOF'
+        
+        ## 🎯 Next Steps
+        1. Download the preprocessed data artifacts
+        2. Load data using the provided loading functions
+        3. Train your machine learning model
+        4. Evaluate model performance
+        
+        ## 🔗 Usage Example
+        ```python
+        from automate_preprocessing import load_preprocessed_data
+        
+        # Load preprocessed data
+        data_dict, metadata, label_encoder = load_preprocessed_data('./namadataset_preprocessing')
+        
+        # Access training data
+        X_train = data_dict['train']['images']
+        y_train = data_dict['train']['labels']
+        
+        # Access metadata
+        categories = metadata['categories']
+        price_info = metadata['price_calorie_mapping']
+        ```
+        EOF
+    
+    - name: Upload preprocessing artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: preprocessed-dataset-${{ github.run_number }}
+        path: |
+          preprocessing/namadataset_preprocessing/
+          preprocessing/preprocessing_report.md
+          preprocessing/preprocessing_summary.txt
+        retention-days: 30
+        compression-level: 6
+    
+    - name: Upload logs
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: preprocessing-logs-${{ github.run_number }}
+        path: |
+          preprocessing/*.log
+          /home/runner/.kaggle/
+        retention-days: 7
+    
+    - name: Comment on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          let reportContent = '## 🚀 Preprocessing Pipeline Results\n\n';
+          
+          try {
+            if (fs.existsSync('preprocessing/preprocessing_report.md')) {
+              reportContent += fs.readFileSync('preprocessing/preprocessing_report.md', 'utf8');
+            } else {
+              reportContent += '❌ Preprocessing failed. Check the workflow logs for details.';
+            }
+          } catch (error) {
+            reportContent += `❌ Error reading preprocessing report: ${error.message}`;
+          }
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: reportContent
+          });
+    
+    - name: Final status
+      run: |
+        echo "🎉 Preprocessing workflow completed!"
+        echo "📦 Artifacts uploaded with name: preprocessed-dataset-${{ github.run_number }}"
+        echo "🔍 Check the Actions tab to download the preprocessed dataset"
+        
+        if [ -f "preprocessing/preprocessing_summary.txt" ]; then
+          echo ""
+          echo "📊 Final Summary:"
+          cat preprocessing/preprocessing_summary.txt
+        fi
