@@ -73,12 +73,14 @@ jobs:
         cd preprocessing
         IFS='x' read -r HEIGHT WIDTH <<< "$TARGET_SIZE"
         echo "Height: $HEIGHT, Width: $WIDTH, Augmentation: $AUGMENT"
-        echo "from automate_preprocessing import FruitVegetablePreprocessor
+        cat <<EOF > run_pipeline.py
+from automate_preprocessing import FruitVegetablePreprocessor
 height = $HEIGHT
 width = $WIDTH
-apply_aug = $AUGMENT.lower() == 'true'
+apply_aug = '$AUGMENT'.lower() == 'true'
 preprocessor = FruitVegetablePreprocessor(target_size=(height, width))
-processed_data, metadata = preprocessor.run_full_pipeline(save_path='./Eksperimen_Fruit&Veg.ipynb', apply_augmentation=apply_aug)" > run_pipeline.py
+processed_data, metadata = preprocessor.run_full_pipeline(save_path='./Eksperimen_Fruit&Veg.ipynb', apply_augmentation=apply_aug)
+EOF
         python run_pipeline.py
 
     - name: Upload outputs
