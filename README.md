@@ -10,7 +10,7 @@ Eksperimen_Fruit&Veg/
 │   └── preprocessing.yml          # ← This workflow file
 ├── preprocessing/
 │   ├── automate_preprocessing.py  # ← Your preprocessing script
-    │   Eksperimen_Fruit&Veg.ipynb/ # ← Output directory
+│   ├── Eksperimen_Fruit&Veg.ipynb/ # ← Output directory
 │   └── namadataset_preprocessing/ # ← Output directory
 ├── requirements.txt               # ← Python dependencies
 └── README.md
