@@ -65,27 +65,21 @@ jobs:
     - name: Parse inputs
       id: parse_inputs
       run: |
-        echo "augmentation=${{ github.event.inputs.apply_augmentation }}" >> $GITHUB_ENV
-        echo "target_size=${{ github.event.inputs.target_size }}" >> $GITHUB_ENV
+        echo "AUGMENT=${{ github.event.inputs.apply_augmentation }}" >> $GITHUB_ENV
+        echo "TARGET_SIZE=${{ github.event.inputs.target_size }}" >> $GITHUB_ENV
 
     - name: Run preprocessing
       run: |
         cd preprocessing
-        IFS='x' read -r HEIGHT WIDTH <<< "$target_size"
-        echo "Height: $HEIGHT, Width: $WIDTH, Augmentation: $augmentation"
-        python -c "
-import os
-import sys
-sys.path.append('.')
-from automate_preprocessing import FruitVegetablePreprocessor
-
-height = int(os.environ['HEIGHT'])
-width = int(os.environ['WIDTH'])
-apply_aug = os.environ['augmentation'].lower() == 'true'
-
+        IFS='x' read -r HEIGHT WIDTH <<< "$TARGET_SIZE"
+        echo "Height: $HEIGHT, Width: $WIDTH, Augmentation: $AUGMENT"
+        echo "from automate_preprocessing import FruitVegetablePreprocessor
+height = $HEIGHT
+width = $WIDTH
+apply_aug = $AUGMENT.lower() == 'true'
 preprocessor = FruitVegetablePreprocessor(target_size=(height, width))
-processed_data, metadata = preprocessor.run_full_pipeline(save_path='./Eksperimen_Fruit&Veg.ipynb', apply_augmentation=apply_aug)
-"
+processed_data, metadata = preprocessor.run_full_pipeline(save_path='./Eksperimen_Fruit&Veg.ipynb', apply_augmentation=apply_aug)" > run_pipeline.py
+        python run_pipeline.py
 
     - name: Upload outputs
       uses: actions/upload-artifact@v4
