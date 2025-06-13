@@ -6,20 +6,12 @@ Repositori otomatisasi preprocessing dataset buah dan sayuran menggunakan GitHub
 
 ```
 Eksperimen_Fruit&Veg/
-├── .workflow/                           # GitHub Actions workflow
-│   └── preprocessing.yml
-├── namadataset_raw/                     # Dataset mentah (auto-download dari Kaggle)
-├── preprocessing/                       # Folder utama preprocessing
-│   ├── Eksperimen_Fruit&Veg.ipynb     # Notebook eksperimen
-│   ├── automate_preprocessing.py       # Script preprocessing utama
-│   └── namadataset_preprocessing/      # Dataset hasil preprocessing
-│       ├── train/
-│       ├── test/
-│       ├── validation/
-│       ├── metadata.json
-│       └── label_encoder.pkl
-├── requirements.txt
-├── .gitignore
+├── .github/workflows/
+│   └── preprocessing.yml          # ← This workflow file
+├── preprocessing/
+│   ├── automate_preprocessing.py  # ← Your preprocessing script
+│   └── namadataset_preprocessing/ # ← Output directory
+├── requirements.txt               # ← Python dependencies
 └── README.md
 ```
 
