@@ -119,18 +119,23 @@ jobs:
         HEIGHT=${SIZE_ARRAY[0]}
         WIDTH=${SIZE_ARRAY[1]}
         
-        # Run preprocessing with custom parameters
-        python -c "
+        # Create Python script for preprocessing
+        cat > run_preprocessing.py << 'PYTHON_EOF'
 import sys
 sys.path.append('.')
 from automate_preprocessing import FruitVegetablePreprocessor
+import os
+
+# Get parameters from environment
+height = int(os.environ.get('HEIGHT', '224'))
+width = int(os.environ.get('WIDTH', '224'))
+apply_aug = os.environ.get('APPLY_AUG', 'true').lower() == 'true'
 
 # Initialize with custom target size
-preprocessor = FruitVegetablePreprocessor(target_size=($HEIGHT, $WIDTH))
+preprocessor = FruitVegetablePreprocessor(target_size=(height, width))
 
 # Run pipeline
 save_path = './namadataset_preprocessing'
-apply_aug = ${{ steps.parse_inputs.outputs.augmentation }}
 
 try:
     processed_data, metadata = preprocessor.run_full_pipeline(save_path, apply_aug)
@@ -138,33 +143,36 @@ try:
     
     # Print summary
     print(f'📊 Summary:')
-    print(f'  - Categories: {metadata[\"num_classes\"]}')
-    print(f'  - Image shape: {metadata[\"image_shape\"]}')
-    print(f'  - Total samples: {metadata[\"dataset_info\"][\"total_samples\"]}')
-    print(f'  - Augmentation applied: {metadata[\"augmentation_applied\"]}')
+    print(f'  - Categories: {metadata["num_classes"]}')
+    print(f'  - Image shape: {metadata["image_shape"]}')
+    print(f'  - Total samples: {metadata["dataset_info"]["total_samples"]}')
+    print(f'  - Augmentation applied: {metadata["augmentation_applied"]}')
     
     # Save summary for artifact
     with open('preprocessing_summary.txt', 'w') as f:
-        f.write(f'Preprocessing Summary\\n')
-        f.write(f'==================\\n')
-        f.write(f'Categories: {metadata[\"num_classes\"]}\\n')
-        f.write(f'Image shape: {metadata[\"image_shape\"]}\\n')
-        f.write(f'Total samples: {metadata[\"dataset_info\"][\"total_samples\"]}\\n')
-        f.write(f'Augmentation applied: {metadata[\"augmentation_applied\"]}\\n')
-        f.write(f'Target size: {metadata[\"target_size\"]}\\n')
-        f.write(f'Splits: {metadata[\"dataset_info\"][\"splits\"]}\\n')
+        f.write(f'Preprocessing Summary\n')
+        f.write(f'==================\n')
+        f.write(f'Categories: {metadata["num_classes"]}\n')
+        f.write(f'Image shape: {metadata["image_shape"]}\n')
+        f.write(f'Total samples: {metadata["dataset_info"]["total_samples"]}\n')
+        f.write(f'Augmentation applied: {metadata["augmentation_applied"]}\n')
+        f.write(f'Target size: {metadata["target_size"]}\n')
+        f.write(f'Splits: {metadata["dataset_info"]["splits"]}\n')
         
         # Add dataset splits info
-        for split in metadata[\"dataset_info\"][\"splits\"]:
+        for split in metadata["dataset_info"]["splits"]:
             if split in processed_data:
-                samples = processed_data[split][\"images\"].shape[0]
-                f.write(f'{split} samples: {samples}\\n')
+                samples = processed_data[split]["images"].shape[0]
+                f.write(f'{split} samples: {samples}\n')
     
     exit(0)
 except Exception as e:
     print(f'❌ Preprocessing failed: {e}')
     exit(1)
-        "
+        PYTHON_EOF
+        
+        # Run the preprocessing script
+        HEIGHT=$HEIGHT WIDTH=$WIDTH APPLY_AUG=${{ steps.parse_inputs.outputs.augmentation }} python run_preprocessing.py
     
     - name: Verify preprocessing output
       run: |
