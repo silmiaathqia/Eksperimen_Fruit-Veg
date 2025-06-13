@@ -1,67 +1,98 @@
-- name: Run preprocessing pipeline
-  id: preprocessing
-  run: |
-    cd preprocessing
-    echo "🚀 Starting preprocessing pipeline..."
-    echo "📊 Configuration:"
-    echo "  - Augmentation: ${{ steps.parse_inputs.outputs.augmentation }}"
-    echo "  - Target Size: ${{ steps.parse_inputs.outputs.target_size }}"
-    
-    # Parse target size
-    IFS='x' read -ra SIZE_ARRAY <<< "${{ steps.parse_inputs.outputs.target_size }}"
-    HEIGHT=${SIZE_ARRAY[0]}
-    WIDTH=${SIZE_ARRAY[1]}
-    
-    # Create Python script for preprocessing
-    cat > run_preprocessing.py << 'PYTHON_EOF'
-import sys
+name: Fruit & Vegetable Dataset Preprocessing
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'preprocessing/**'
+      - '.github/workflows/preprocessing.yml'
+      - 'requirements.txt'
+
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'preprocessing/**'
+      - '.github/workflows/preprocessing.yml'
+      - 'requirements.txt'
+
+  workflow_dispatch:
+    inputs:
+      apply_augmentation:
+        description: 'Apply data augmentation to training data'
+        required: false
+        default: 'true'
+        type: boolean
+      target_size:
+        description: 'Target image size (format: 224x224)'
+        required: false
+        default: '224x224'
+        type: string
+
+env:
+  PYTHON_VERSION: 3.9
+  KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+  KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+
+jobs:
+  preprocessing:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Set up Kaggle credentials
+      run: |
+        mkdir -p ~/.kaggle
+        echo "{\"username\":\"$KAGGLE_USERNAME\",\"key\":\"$KAGGLE_KEY\"}" > ~/.kaggle/kaggle.json
+        chmod 600 ~/.kaggle/kaggle.json
+
+    - name: Parse inputs
+      id: parse_inputs
+      run: |
+        echo "augmentation=${{ github.event.inputs.apply_augmentation || 'true' }}" >> $GITHUB_OUTPUT
+        echo "target_size=${{ github.event.inputs.target_size || '224x224' }}" >> $GITHUB_OUTPUT
+
+    - name: Run preprocessing
+      run: |
+        cd preprocessing
+        echo "Running preprocessing with target size ${{ steps.parse_inputs.outputs.target_size }}"
+        IFS='x' read -r HEIGHT WIDTH <<< "${{ steps.parse_inputs.outputs.target_size }}"
+        echo "HEIGHT=$HEIGHT" >> $GITHUB_ENV
+        echo "WIDTH=$WIDTH" >> $GITHUB_ENV
+        echo "APPLY_AUG=${{ steps.parse_inputs.outputs.augmentation }}" >> $GITHUB_ENV
+        python -c "
 import os
+import sys
 sys.path.append('.')
 from automate_preprocessing import FruitVegetablePreprocessor
 
-# Get parameters from environment
-height = int(os.environ.get('HEIGHT', '224'))
-width = int(os.environ.get('WIDTH', '224'))
-apply_aug = os.environ.get('APPLY_AUG', 'true').lower() == 'true'
+height = int(os.environ['HEIGHT'])
+width = int(os.environ['WIDTH'])
+apply_aug = os.environ['APPLY_AUG'].lower() == 'true'
 
-# Initialize with custom target size
 preprocessor = FruitVegetablePreprocessor(target_size=(height, width))
+preprocessor.run_full_pipeline(save_path='./Eksperimen_Fruit&Veg.ipynb', apply_augmentation=apply_aug)
+"
 
-# Run pipeline
-save_path = './namadataset_preprocessing'
-
-try:
-    processed_data, metadata = preprocessor.run_full_pipeline(save_path, apply_aug)
-    print('✅ Preprocessing completed successfully!')
-    
-    # Print summary
-    print(f'📊 Summary:')
-    print(f'  - Categories: {metadata["num_classes"]}')
-    print(f'  - Image shape: {metadata["image_shape"]}')
-    print(f'  - Total samples: {metadata["dataset_info"]["total_samples"]}')
-    print(f'  - Augmentation applied: {metadata["augmentation_applied"]}')
-    
-    # Save summary
-    with open('preprocessing_summary.txt', 'w') as f:
-        f.write(f'Preprocessing Summary\n')
-        f.write(f'==================\n')
-        f.write(f'Categories: {metadata["num_classes"]}\n')
-        f.write(f'Image shape: {metadata["image_shape"]}\n')
-        f.write(f'Total samples: {metadata["dataset_info"]["total_samples"]}\n')
-        f.write(f'Augmentation applied: {metadata["augmentation_applied"]}\n')
-        f.write(f'Target size: {metadata["target_size"]}\n')
-        f.write(f'Splits: {metadata["dataset_info"]["splits"]}\n')
-        
-        for split in metadata["dataset_info"]["splits"]:
-            if split in processed_data:
-                samples = processed_data[split]["images"].shape[0]
-                f.write(f'{split} samples: {samples}\n')
-    
-    exit(0)
-except Exception as e:
-    print(f'❌ Preprocessing failed: {e}')
-    exit(1)
-PYTHON_EOF
-
-    # Run the preprocessing script
-    HEIGHT=$HEIGHT WIDTH=$WIDTH APPLY_AUG=${{ steps.parse_inputs.outputs.augmentation }} python run_preprocessing.py
+    - name: Upload outputs
+      uses: actions/upload-artifact@v4
+      with:
+        name: preprocessed-data-${{ github.run_number }}
+        path: preprocessing/Eksperimen_Fruit&Veg.ipynb
+        retention-days: 30
